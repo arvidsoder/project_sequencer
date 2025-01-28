@@ -1,0 +1,3 @@
+Links to some useful websites
+
+I2Cmaster library: http://www.peterfleury.epizy.com/doxygen/avr-gcc-libraries/group__pfleury__ic2master.html?i=1
