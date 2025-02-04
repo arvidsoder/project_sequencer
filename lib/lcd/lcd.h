@@ -84,14 +84,14 @@
  *  
  */
 
-#define LCD_DATA0_PORT   PORTB        /**< port for 4bit data bit 0 */
-#define LCD_DATA1_PORT   PORTB        /**< port for 4bit data bit 1 */
-#define LCD_DATA2_PORT   PORTB        /**< port for 4bit data bit 2 */
-#define LCD_DATA3_PORT   PORTB        /**< port for 4bit data bit 3 */
-#define LCD_DATA0_PIN    4            /**< pin for 4bit data bit 0  */
-#define LCD_DATA1_PIN    5            /**< pin for 4bit data bit 1  */
-#define LCD_DATA2_PIN    2            /**< pin for 4bit data bit 2  */
-#define LCD_DATA3_PIN    3            /**< pin for 4bit data bit 3  */
+#define LCD_DATA0_PORT   PORTD        /**< port for 4bit data bit 0 */
+#define LCD_DATA1_PORT   PORTD        /**< port for 4bit data bit 1 */
+#define LCD_DATA2_PORT   PORTD        /**< port for 4bit data bit 2 */
+#define LCD_DATA3_PORT   PORTD        /**< port for 4bit data bit 3 */
+#define LCD_DATA0_PIN    2            /**< pin for 4bit data bit 0  */
+#define LCD_DATA1_PIN    3            /**< pin for 4bit data bit 1  */
+#define LCD_DATA2_PIN    4            /**< pin for 4bit data bit 2  */
+#define LCD_DATA3_PIN    7            /**< pin for 4bit data bit 3  */
 #define LCD_RS_PORT      PORTC        /**< port for RS line         */
 #define LCD_E_PORT       PORTC        /**< port for Enable line     */
 #define LCD_RW_PORT      PORTC        /**< port for RW line         */
