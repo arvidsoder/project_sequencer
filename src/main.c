@@ -19,6 +19,14 @@ void init(void)
     lcd_puts("Start");
 }
 
+void DAC_out(int output_int){
+    i2c_start_wait(MCP4725ADDR + I2C_WRITE);
+    i2c_write(64);
+    i2c_write(output_int >> 4);
+    i2c_write((output_int % 15) << 4);
+    i2c_stop();
+}
+
 int main(void)
 {
     init();
@@ -28,11 +36,7 @@ int main(void)
     while (1)
     {
         value = value % 4000;
-        i2c_start_wait(MCP4725ADDR + I2C_WRITE);
-        i2c_write(64);
-        i2c_write(value >> 4);
-        i2c_write((value % 15) << 4); 
-        i2c_stop();
+        DAC_out(value);
         value ++;
     }
     
