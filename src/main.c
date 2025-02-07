@@ -28,6 +28,7 @@ void EEPROMwriteAddress(uint16_t address, uint8_t val){ // Writes a value val to
     i2c_write(address & 0xFF); //address
     i2c_write(val);
     i2c_stop();
+    _delay_ms(5);
 }
 
 uint8_t EEPROMreadAddress(uint16_t address){ // Reads value from address of EEPROM
@@ -44,12 +45,20 @@ uint8_t EEPROMreadAddress(uint16_t address){ // Reads value from address of EEPR
 
 void SPI_init() {
     DDRB |= (1 << MOSI) | (1 << SCK) | (1 << SS); // Set SPI pins as output
-    SPCR = (1 << SPE) | (1 << MSTR) | (1 << SPR0); // Enable SPI, Master mode, f/16 speed
+    SPCR = (1 << SPE) | (1 << MSTR) | (1 << SPR1) | (1 << SPR0); // Enable SPI, Master mode, f/16 speed
 }
 
 void SPI_send(uint8_t data) {
     SPDR = data;
     while (!(SPSR & (1 << SPIF))); // Wait for transmission complete
+}
+
+void SPI_disable() {
+    SPCR &= ~(1 << SPE);  // Disable SPI
+}
+
+void SPI_enable() {
+    SPCR |= (1 << SPE);   // Enable SPI
 }
 
 void MAX7219_send(uint8_t address, uint8_t data) {
@@ -61,7 +70,7 @@ void MAX7219_send(uint8_t address, uint8_t data) {
 
 void MAX7219_init() {
     MAX7219_send(0x09, 0x00); // No decode mode (LED matrix mode)
-    MAX7219_send(0x0A, 0x01); // Medium brightness
+    MAX7219_send(0x0A, 0x05); // Medium brightness
     MAX7219_send(0x0B, 0x07); // Scan limit = 8 rows
     MAX7219_send(0x0C, 0x01); // Normal operation mode
     MAX7219_send(0x0F, 0x00); // Disable test mode
@@ -86,11 +95,16 @@ uint8_t smiley_face[8] = {
 
 void init(void)
 {
+    _delay_ms(100);
     sei();
     i2c_init();
+    _delay_ms(1);
     lcd_init( LCD_DISP_ON );
+    _delay_ms(1);
     lcd_clrscr();
+    _delay_ms(1);
     SPI_init();
+    _delay_ms(1);
     MAX7219_init();
 
 }
@@ -105,16 +119,17 @@ int main(void)
 
     init();
     value = 0;
-    
+    display_pattern(smiley_face);
+    SPI_disable();
     EEPROMwriteAddress(0x0005, 69);
     ret = EEPROMreadAddress(0x0005);
-    
 
     sprintf(lcd_buffer1, "mem: %d", ret);
     lcd_clrscr();
-    lcd_puts(lcd_buffer1);
-
+    lcd_puts("hadj");
+    _delay_ms(50);
     
+    _delay_ms(50);
     
     
     while (1)
@@ -122,8 +137,10 @@ int main(void)
         value = value % 4000;
         DAC_Write(value);
         value ++;
-        display_pattern(led_buffer);
         _delay_ms(50);
+        lcd_clrscr();
+        sprintf(lcd_buffer1, "%d",value);
+        lcd_puts(lcd_buffer1);
 
     }
     
