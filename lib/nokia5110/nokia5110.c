@@ -2,11 +2,9 @@
  * nokia5110.c
  *
  * Created: 2015-06-09 21:07:02
- * version: 2016-12-12 
+ * version: 2017-04-17 
  *  Author: uwezi
  */ 
-
-// NOKIA routines as external file...
 
 #include <stdlib.h>
 #include <util/atomic.h>
@@ -52,7 +50,7 @@
 //    LSB is top
 //    MSB is bottom
 //
-static const uint8_t smallFont[][6] PROGMEM = 
+static const uint8_t smallFont[][6] PROGMEM =
 #include "font_6x8_iso8859_1.h"
 
 //
@@ -157,17 +155,6 @@ void NOKIA_gotoXY ( uint8_t x, uint8_t y )
 }
 
 /*--------------------------------------------------------------------------------------------------
-  Name         :  NOKIA_fillbuffer
-  Description  :  Fills the framebuffer but does not transfer to LCD.
-  Argument(s)  :  value to fill
-  Return value :  None.
---------------------------------------------------------------------------------------------------*/
-void NOKIA_fillbuffer(uint8_t value)
-{
-  memset(framebuffer, value, NOKIASIZEX*NOKIASIZEY/8);
-}
-
-/*--------------------------------------------------------------------------------------------------
   Name         :  NOKIA_clearbuffer
   Description  :  Clears the framebuffer but does not transfer to LCD.
   Argument(s)  :  None.
@@ -175,12 +162,12 @@ void NOKIA_fillbuffer(uint8_t value)
 --------------------------------------------------------------------------------------------------*/
 void NOKIA_clearbuffer(void)
 {
-  NOKIA_fillbuffer(0);
+  memset(framebuffer, 0x00, NOKIASIZEX*NOKIASIZEY/8);
 }
 
 /*--------------------------------------------------------------------------------------------------
   Name         :  NOKIA_update
-  Description  :  transfers the local copy to the display
+  Description  :  transfers the local framebuffer to the display
   Argument(s)  :  None.
   Return value :  None.
 --------------------------------------------------------------------------------------------------*/

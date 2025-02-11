@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include <avr/interrupt.h>
 #include "nokia5110.h"
+
 #define DAC_MCP4725ADDR (0x60 << 1) // address of DAC i2c, 0xC0
 #define EEPROM_24AA512ADDR (0b1010000 << 1) // address of EEPROM
 
@@ -17,6 +18,70 @@
 #define ENC_P3  PD5 //PD5
 #define ENC_P4  PD6 //PD6
 
+#define _MIN_ -100
+#define _MAX_ 999
+#define ENC_PIN_A 6  // PD6 (PCINT22)
+#define ENC_PIN_B 5  // PD5 (PCINT21)
+
+volatile static int16_t encoder_count = 0;
+// Variables to track encoder state
+volatile static uint8_t A_state = 0;
+volatile static uint8_t B_state = 0;
+volatile static int16_t R_count = 0;
+volatile static uint8_t last_state = 0;
+volatile static uint8_t last_last_state = 0;
+void encoder_init() {
+    // Set Pin A (PD2) and Pin B (PD3) as inputs with pull-ups
+    DDRD &= ~((1 << PD2) | (1 << PD3));  
+
+
+    // Set PB0 as input for push button with pull-up
+    DDRB &= ~(1 << PB0);
+    PORTB |= (1 << PB0);
+
+    // Enable external interrupts for Pin A (PD2) and Pin B (PD3)
+    EICRA |= (0 << ISC01) | (1 << ISC00) | (0 << ISC11) | (1 << ISC10); // Any change on INT0 and INT1
+    EIMSK |= (1 << INT1) | (1 << INT0);   // Enable INT0 and INT1
+
+    sei();  // Enable global interrupts
+}
+
+// Interrupt Service Routine for Pin A (PD2)
+void decode_rotor(void) {
+    
+    uint8_t pinState = PIND;
+    uint8_t new_state = ((pinState & (1 << ENC_PIN_A)) ? 1 : 0) | (((pinState & (1 << ENC_PIN_B)) ? 1 : 0) << 1);
+
+    if ((last_state == 0b00 && last_state == 0b00 && new_state == 0b01) ||
+        (last_state == 0b01 && new_state == 0b11) ||
+        (last_state == 0b11 && new_state == 0b10) ||
+        (last_state == 0b10 && new_state == 0b00)) {
+        if (R_count < _MAX_) R_count++;
+    }
+
+    if ((last_state == 0b00 && new_state == 0b10) ||
+        (last_state == 0b10 && new_state == 0b11) ||
+        (last_state == 0b11 && new_state == 0b01) ||
+        (last_state == 0b01 && new_state == 0b00)) {
+        if (R_count > _MIN_) R_count--;
+    }
+
+    last_state = new_state;
+    last_last_state = last_state;
+     //debug
+}
+
+// Interrupt Service Routine for Pin B (PD3)
+ISR(INT1_vect) {
+decode_rotor();
+}
+ISR(INT0_vect){
+decode_rotor();
+}
+// Read push button state
+uint8_t read_button() {
+    return (PINB & (1 << PB0)) == 0;  // Returns 1 if pressed
+}
 
 void DAC_Write(uint16_t value){
     i2c_start_wait(DAC_MCP4725ADDR + I2C_WRITE);    //Address the DAC (write)
@@ -99,12 +164,14 @@ uint8_t smiley_face[8] = {
 
 uint8_t Graytobin[16] = {0,15,7,8,3,12,4,11,1,14,6,9,2,13,5,10};
 
-uint8_t read_encoder(void){
+uint8_t Read_encoder(void){
     uint8_t inv = 0;
     uint8_t gray = 1*((PIND & (1<<ENC_P4))==0) + 2*((PIND & (1<<ENC_P3))==0) + 4*((PINB & (1<<ENC_P2))==0) + 8*((PINB & (1<<ENC_P1))==0);
     inv = Graytobin[gray];
     return inv;
 }
+
+
 
 char midi_array[12][3] = {"C ","C#","D ","D#","E ","F ","F#","G ","G#","A ","A#","B "};
 
@@ -112,20 +179,28 @@ char midi_array[12][3] = {"C ","C#","D ","D#","E ","F ","F#","G ","G#","A ","A#"
 volatile uint8_t rotary_enc;
 volatile uint8_t note_array[64];
 volatile uint8_t note_array_length = 8;
+volatile char lcd_buffer1[8];
+uint8_t led_buffer[8];
+volatile int8_t foobar = 60;
+
 
 void init(void)
 {
- 
-    i2c_init();
-    SPI_init();
-    _delay_ms(1);
-    MAX7219_init();
+    
+    //i2c_init();
+    //SPI_init();
+    //_delay_ms(1);
+    //MAX7219_init();
     NOKIA_init(0);
     NOKIA_setVop(50);
-    rotary_enc = read_encoder(); //initial value
-    DDRB &= ~((1 << ENC_P1) | (1 << ENC_P2)); //rotary encoder
-    DDRD &= ~((1 << ENC_P3) | (1 << ENC_P4));
-
+    NOKIA_clear();
+    NOKIA_print(0,0,"dfs",0);
+    NOKIA_update();
+    encoder_init();
+    rotary_enc = 0; //initial value
+    //DDRB &= ~((1 << ENC_P1) | (1 << ENC_P2)); //rotary encoder
+    //DDRD &= ~((1 << ENC_P3) | (1 << ENC_P4));
+/*
     TCCR0A = (0 << COM0A1 ) | (0 << COM0A0 ) // no PWM
            | (0 << COM0B1 ) | (0 << COM0B0 ) // 
            | (0 << WGM01 ) | (0 << WGM00 ); // WGMxx sets the mode of the timer
@@ -133,29 +208,16 @@ void init(void)
            | (0 << CS02) | (1 << CS01) | (0 << CS00 ); // clock prescaler
             // enable the TIMER0 OVERFLOW INTERRUPT
     TIMSK0 = (0 << OCIE0B ) | (0 << OCIE0A ) | (1 << TOIE0 );
-    
+*/
     sei();
 }
 
-volatile char lcd_buffer1[8];
-uint8_t led_buffer[8];
-volatile int8_t foobar = 60;
 
-ISR(TIMER0_OVF_vect){
-    int8_t diff = read_encoder() - rotary_enc;
-    int8_t increment = 0;
 
-    if (((diff > 0) && (diff < 6)) || (diff < -7)) 
-    {
-        increment = 1;
-    }  else if (((diff < 0) && (diff > -6)) || (diff > 7))
-    {
-        increment = -1;
-    }
-    foobar += increment;
-    rotary_enc = read_encoder();
-        
-}
+
+
+
+
 
 int main(void)
 {
@@ -166,19 +228,21 @@ int main(void)
 
     init();
     value = 0;
-    
-    display_pattern(smiley_face);
-    
+
+
     while (1)
     {
-        value = value % 4000;
-        DAC_Write(value);
-        value ++;
-        sprintf(lcd_buffer1,"en %2s%d",midi_array[abs(foobar)%12],(foobar)/12 -1);
-        NOKIA_clear();
-        NOKIA_print(0,0,lcd_buffer1,2);
-        NOKIA_update();
+    decode_rotor();
 
+        sprintf(lcd_buffer1,"je %d %d %d", R_count, 1*((PIND & (1 << PD2))==0), 1*((PIND & (1 << PD3))==0));
+    NOKIA_clear();
+    NOKIA_print(0,0,lcd_buffer1,0);
+    
+    NOKIA_update();
+
+        _delay_ms(2);
+
+        
     }
     
     return 0;

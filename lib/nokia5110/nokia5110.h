@@ -2,10 +2,9 @@
  * nokia5110.h
  *
  * Created: 2015-06-09 21:07:15
- * version: 2016-12-12 
+ * version: 2017-04-18 
  *  Author: uwezi
  */ 
-
 
 #ifndef NOKIA5110_H_
 #define NOKIA5110_H_
@@ -13,39 +12,39 @@
 #include <avr/pgmspace.h>
 
 //
-// macros for the software SPI
+// define your electrical connection to the display here
 //
 
-#define DDR(x) (*(&x - 1))      /* address of data direction register of port x */
-/*
-Nokia.SCL  PD0|2   27|PC4      SDA
-Nokia.SDIN PD1|3   26|PC3
-Nokia.DC   PD2|4   25|PC2
-Nokia.SCE  PD3|5   24|PC1
-Nokia.RST  PD4|6   23|PC0
-*/
-#define RST        PD4
+#define RST        PD1
 #define RST_PORT   PORTD
 
-#define SCE        PD3
+#define SCE        PD4
 #define SCE_PORT   PORTD
 
-#define SCL        PD0
-#define SCL_PORT   PORTD
-
-#define DC         PD2
+#define DC         PD5
 #define DC_PORT    PORTD
 
-#define SD         PD1
+#define SD         PD6
 #define SD_PORT    PORTD
+
+#define SCL        PD7
+#define SCL_PORT   PORTD
 
 //#define NOKIA_LED           PD5
 //#define NOKIA_LED_PORT      PORTD
+
+// rotate the screen 180 degrees
+#define NOKIAROTATE      
+
+//
+// hardware macros
+//
+
+#define DDR(x) (*(&x - 1))      /* address of data direction register of port x */
+
 //#define NOKIA_LED_ENABLE()  DDR(NOKIA_LED_PORT)  |=  (1 << NOKIA_LED)
 //#define NOKIA_LED_DISABLE() DDR(NOKIA_LED_PORT)  &= ~(1 << NOKIA_LED)
 //#define NOKIA_LED_STATE(x)  NOKIA_LED_PORT &= ~(1 << NOKIA_LED); NOKIA_LED_PORT |= (x << NOKIA_LED)
-
-#define NOKIAROTATE
 
 #define NOKIASIZEX 84
 #define NOKIASIZEY 48
@@ -75,14 +74,6 @@ extern void NOKIA_writeData (uint8_t data );
   Return value :  None.
 --------------------------------------------------------------------------------------------------*/
 extern void NOKIA_gotoXY ( uint8_t x, uint8_t y );
-
-/*--------------------------------------------------------------------------------------------------
-  Name         :  NOKIA_fillbuffer
-  Description  :  Fills the framebuffer but does not transfer to LCD.
-  Argument(s)  :  value to fill
-  Return value :  None.
---------------------------------------------------------------------------------------------------*/
-extern void NOKIA_fillbuffer(uint8_t value);
 
 /*--------------------------------------------------------------------------------------------------
   Name         :  NOKIA_clearbuffer
