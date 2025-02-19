@@ -43,7 +43,6 @@ void encoder_init() {
     EICRA |= (0 << ISC01) | (1 << ISC00) | (0 << ISC11) | (1 << ISC10); // Any change on INT0 and INT1
     EIMSK |= (1 << INT1) | (1 << INT0);   // Enable INT0 and INT1
 
-    sei();  // Enable global interrupts
 }
 
 // Interrupt Service Routine for Pin A (PD2)
@@ -52,17 +51,11 @@ void decode_rotor(void) {
     uint8_t pinState = PIND;
     uint8_t new_state = ((pinState & (1 << ENC_PIN_A)) ? 1 : 0) | (((pinState & (1 << ENC_PIN_B)) ? 1 : 0) << 1);
 
-    if ((last_state == 0b00 && last_state == 0b00 && new_state == 0b01) ||
-        (last_state == 0b01 && new_state == 0b11) ||
-        (last_state == 0b11 && new_state == 0b10) ||
-        (last_state == 0b10 && new_state == 0b00)) {
+    if ((last_last_state == 0b11 && last_state == 0b10 && new_state == 0b00)) {
         if (R_count < _MAX_) R_count++;
     }
 
-    if ((last_state == 0b00 && new_state == 0b10) ||
-        (last_state == 0b10 && new_state == 0b11) ||
-        (last_state == 0b11 && new_state == 0b01) ||
-        (last_state == 0b01 && new_state == 0b00)) {
+    if ((last_last_state == 0b11 && last_state == 0b01 && new_state == 0b00))  {
         if (R_count > _MIN_) R_count--;
     }
 
@@ -72,16 +65,13 @@ void decode_rotor(void) {
 }
 
 // Interrupt Service Routine for Pin B (PD3)
-ISR(INT1_vect) {
-decode_rotor();
-}
-ISR(INT0_vect){
-decode_rotor();
-}
-// Read push button state
-uint8_t read_button() {
-    return (PINB & (1 << PB0)) == 0;  // Returns 1 if pressed
-}
+//ISR(INT1_vect) {
+////decode_rotor();
+//}
+//ISR(INT0_vect){
+////decode_rotor();
+//}
+
 
 void DAC_Write(uint16_t value){
     i2c_start_wait(DAC_MCP4725ADDR + I2C_WRITE);    //Address the DAC (write)
@@ -188,15 +178,16 @@ void init(void)
 {
     
     //i2c_init();
-    //SPI_init();
+    SPI_init();
     //_delay_ms(1);
     //MAX7219_init();
     NOKIA_init(0);
-    NOKIA_setVop(50);
+    _delay_ms(40);
+    NOKIA_setVop(255);
     NOKIA_clear();
     NOKIA_print(0,0,"dfs",0);
     NOKIA_update();
-    encoder_init();
+    
     rotary_enc = 0; //initial value
     //DDRB &= ~((1 << ENC_P1) | (1 << ENC_P2)); //rotary encoder
     //DDRD &= ~((1 << ENC_P3) | (1 << ENC_P4));
@@ -209,6 +200,7 @@ void init(void)
             // enable the TIMER0 OVERFLOW INTERRUPT
     TIMSK0 = (0 << OCIE0B ) | (0 << OCIE0A ) | (1 << TOIE0 );
 */
+    //cli(); //disable interrups
     sei();
 }
 
@@ -232,15 +224,15 @@ int main(void)
 
     while (1)
     {
-    decode_rotor();
+    
 
-        sprintf(lcd_buffer1,"je %d %d %d", R_count, 1*((PIND & (1 << PD2))==0), 1*((PIND & (1 << PD3))==0));
+    sprintf(lcd_buffer1,"je %d", 2); //1*((PIND & (1 << PD2))==0), 1*((PIND & (1 << PD3))==0));
     NOKIA_clear();
-    NOKIA_print(0,0,lcd_buffer1,0);
+    NOKIA_print(0,0,"srs",0);
     
     NOKIA_update();
 
-        _delay_ms(2);
+    _delay_ms(20);
 
         
     }
