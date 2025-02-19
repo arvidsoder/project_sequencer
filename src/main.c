@@ -3,74 +3,57 @@
 #include <i2cmaster.h>
 #include <stdio.h>
 #include <avr/interrupt.h>
-#include "nokia5110.h"
+#include <lcd.h>
+#include <math.h>
 
 #define DAC_MCP4725ADDR (0x60 << 1) // address of DAC i2c, 0xC0
 #define EEPROM_24AA512ADDR (0b1010000 << 1) // address of EEPROM
+#define IO_EXPANDER_ADDR 0b01000000
 
 // Define SPI pins
 #define MOSI    PB3
 #define SCK     PB5
 #define SS      PB2  // Chip Select for MAX7219
 // Rotary Encoder
-#define ENC_P1  PB6 //PB6
-#define ENC_P2  PB7 //PB7
-#define ENC_P3  PD5 //PD5
-#define ENC_P4  PD6 //PD6
+#define ENC_PIN_A 2  // PD2
+#define ENC_PIN_B 0  // PB0 
+#define ENC_BUTTON_PIN 3//
 
-#define _MIN_ -100
-#define _MAX_ 999
-#define ENC_PIN_A 6  // PD6 (PCINT22)
-#define ENC_PIN_B 5  // PD5 (PCINT21)
-
-volatile static int16_t encoder_count = 0;
 // Variables to track encoder state
 volatile static uint8_t A_state = 0;
 volatile static uint8_t B_state = 0;
 volatile static int16_t R_count = 0;
-volatile static uint8_t last_state = 0;
-volatile static uint8_t last_last_state = 0;
+volatile static uint8_t rotor_flag = 0;
+
 void encoder_init() {
-    // Set Pin A (PD2) and Pin B (PD3) as inputs with pull-ups
-    DDRD &= ~((1 << PD2) | (1 << PD3));  
+    // Set Pin A (PD2) and button (PD3) as inputs with pull-ups
+    DDRD &= ~((1 << ENC_PIN_A) | (1 << ENC_BUTTON_PIN));  
 
 
-    // Set PB0 as input for push button with pull-up
-    DDRB &= ~(1 << PB0);
+    // Set PB0 as input for B with pull-up
+    DDRB &= ~(1 << ENC_PIN_B);
     PORTB |= (1 << PB0);
 
     // Enable external interrupts for Pin A (PD2) and Pin B (PD3)
-    EICRA |= (0 << ISC01) | (1 << ISC00) | (0 << ISC11) | (1 << ISC10); // Any change on INT0 and INT1
+    EICRA |= (1 << ISC01) | (0 << ISC00) | (1 << ISC11) | (0 << ISC10); //| (0 << ISC11) | (1 << ISC10); // Any change on INT0 and falling edge INT1 (button)
     EIMSK |= (1 << INT1) | (1 << INT0);   // Enable INT0 and INT1
 
 }
 
 // Interrupt Service Routine for Pin A (PD2)
 void decode_rotor(void) {
-    
-    uint8_t pinState = PIND;
-    uint8_t new_state = ((pinState & (1 << ENC_PIN_A)) ? 1 : 0) | (((pinState & (1 << ENC_PIN_B)) ? 1 : 0) << 1);
-
-    if ((last_last_state == 0b11 && last_state == 0b10 && new_state == 0b00)) {
-        if (R_count < _MAX_) R_count++;
+    if (!A_state) // A falling edge.
+    {
+    if (!B_state) R_count ++; // Positive direction (arbitrary)
+    else R_count --;    // Negative direction (arbitrary)
     }
-
-    if ((last_last_state == 0b11 && last_state == 0b01 && new_state == 0b00))  {
-        if (R_count > _MIN_) R_count--;
+else // A falling edge.
+    {
+    if (B_state) R_count ++; // Positive direction (arbitrary)
+    else R_count --; // Negative direction (arbitrary)
     }
-
-    last_state = new_state;
-    last_last_state = last_state;
-     //debug
 }
 
-// Interrupt Service Routine for Pin B (PD3)
-//ISR(INT1_vect) {
-////decode_rotor();
-//}
-//ISR(INT0_vect){
-////decode_rotor();
-//}
 
 
 void DAC_Write(uint16_t value){
@@ -152,55 +135,67 @@ uint8_t smiley_face[8] = {
     0b00111100
 };
 
-uint8_t Graytobin[16] = {0,15,7,8,3,12,4,11,1,14,6,9,2,13,5,10};
-
-uint8_t Read_encoder(void){
-    uint8_t inv = 0;
-    uint8_t gray = 1*((PIND & (1<<ENC_P4))==0) + 2*((PIND & (1<<ENC_P3))==0) + 4*((PINB & (1<<ENC_P2))==0) + 8*((PINB & (1<<ENC_P1))==0);
-    inv = Graytobin[gray];
-    return inv;
-}
 
 
 
 char midi_array[12][3] = {"C ","C#","D ","D#","E ","F ","F#","G ","G#","A ","A#","B "};
 
 
-volatile uint8_t rotary_enc;
 volatile uint8_t note_array[64];
 volatile uint8_t note_array_length = 8;
-volatile char lcd_buffer1[8];
+uint8_t tempo = 120;
+uint8_t swing = 50;
+int8_t mem_bank = 0;
+int8_t note_row = 0;
+uint8_t lcd_posx = 0;
+uint8_t lcd_posy = 0;
+volatile uint8_t menu_select=0; //latching 
+int8_t menu_item = 0;
+char lcd_buffer1[32];
 uint8_t led_buffer[8];
-volatile int8_t foobar = 60;
+volatile int8_t lcd_print_flag = 0;
 
+// Interrupt Service Routine for 
+ISR(INT1_vect) { 
+    menu_select = !menu_select;
+}
+
+// Interrupt Service Routine for Pin A (PD2)
+//}
+ISR(INT0_vect){ 
+rotor_flag=1;
+A_state = ((PIND & (1 << ENC_PIN_A)) >= 1);
+B_state = ((PINB & (1 << ENC_PIN_B)) >= 1);
+
+}
+
+ISR(TIMER0_OVF_vect){
+    lcd_print_flag=1;
+}
 
 void init(void)
 {
     
-    //i2c_init();
+    i2c_init();
     SPI_init();
-    //_delay_ms(1);
-    //MAX7219_init();
-    NOKIA_init(0);
-    _delay_ms(40);
-    NOKIA_setVop(255);
-    NOKIA_clear();
-    NOKIA_print(0,0,"dfs",0);
-    NOKIA_update();
-    
-    rotary_enc = 0; //initial value
+    _delay_ms(1);
+    MAX7219_init();
+    encoder_init();
+    lcd_init(LCD_DISP_ON);
+    lcd_clrscr();
+  
+    lcd_puts("hello world");
     //DDRB &= ~((1 << ENC_P1) | (1 << ENC_P2)); //rotary encoder
     //DDRD &= ~((1 << ENC_P3) | (1 << ENC_P4));
-/*
+
     TCCR0A = (0 << COM0A1 ) | (0 << COM0A0 ) // no PWM
            | (0 << COM0B1 ) | (0 << COM0B0 ) // 
            | (0 << WGM01 ) | (0 << WGM00 ); // WGMxx sets the mode of the timer
     TCCR0B = (0 << WGM02 ) // WGMxx sets the mode of the timer
-           | (0 << CS02) | (1 << CS01) | (0 << CS00 ); // clock prescaler
+           | (1 << CS02) | (0 << CS01) | (1 << CS00 ); // clock prescaler
             // enable the TIMER0 OVERFLOW INTERRUPT
     TIMSK0 = (0 << OCIE0B ) | (0 << OCIE0A ) | (1 << TOIE0 );
-*/
-    //cli(); //disable interrups
+
     sei();
 }
 
@@ -224,17 +219,80 @@ int main(void)
 
     while (1)
     {
-    
+        if (!menu_select){
+            menu_item = (menu_item+R_count)%4;
+            if (menu_item < 0) menu_item=3;
+            R_count=0;
+            
+        }
+        else {
+            switch (menu_item) {
+                case 0:
+                    tempo = tempo+R_count;
+                    
+                    break;
+                case 1:
+                    mem_bank = (mem_bank+R_count)%100;
+                    
+                    break;
+                case 2:
+                    swing = (swing+R_count)%100;
+                    
+                    break;
+                case 3:
+                    note_row = (note_row+R_count)%8;
+                    if (note_row < 0) note_row=7;
+                    break;
 
-    sprintf(lcd_buffer1,"je %d", 2); //1*((PIND & (1 << PD2))==0), 1*((PIND & (1 << PD3))==0));
-    NOKIA_clear();
-    NOKIA_print(0,0,"srs",0);
-    
-    NOKIA_update();
-
-    _delay_ms(20);
+                default:
+                    break;
+            }
+            R_count=0;
+        }
 
         
+        
+        if (lcd_print_flag==1){
+            sprintf(lcd_buffer1," Tempo%3d Bank%2d Swing %2d Row  %1d", tempo, mem_bank, swing, note_row+1);
+            
+            lcd_clrscr();
+            lcd_gotoxy(0,0);
+            lcd_puts(lcd_buffer1);
+
+            switch (menu_item) {
+                case 0:
+                    lcd_posx=0;
+                    lcd_posy=0;
+                    break;
+                case 1:
+                    lcd_posx=9;
+                    lcd_posy=0;
+                    break;
+                case 2:
+                    lcd_posx=0;
+                    lcd_posy=1;
+                    break;
+                case 3:
+                    lcd_posx=9;
+                    lcd_posy=1;
+                    break;
+                default:
+                    break;
+            }
+
+            lcd_gotoxy(lcd_posx, lcd_posy);
+            if (menu_select) lcd_command(LCD_DISP_ON_CURSOR_BLINK);
+            else lcd_command(LCD_DISP_ON_CURSOR);
+            display_pattern(smiley_face);
+
+            lcd_print_flag=0;
+        }
+        
+        if (rotor_flag){
+            decode_rotor(); //R_count++ or --
+            _delay_ms(5); //debounce
+            rotor_flag=0;
+        }
     }
     
     return 0;
