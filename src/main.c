@@ -34,7 +34,7 @@ volatile static int16_t R_count = 0;
 volatile static uint8_t rotor_flag = 0;
 //button
 static uint8_t menu_button_latch = 0;
-volatile static menu_select=0; //latching 
+volatile static uint8_t menu_select=0; //latching 
 static uint8_t last_button_state = 0xFF;
 
 void encoder_init() {
@@ -179,11 +179,18 @@ void menu_button_press_read(uint8_t button_port_B){
     last_button_state = button_state;
 }
 
+int in_the_range(int value, int start, int stop){
+    int ret_value = value;
+    if (value < start) ret_value = start;
+    else if (value > stop) ret_value = stop;
+    return ret_value;
+}
+
 
 char midi_array[12][3] = {"C ","C#","D ","D#","E ","F ","F#","G ","G#","A ","A#","B "};
 
 
-volatile static uint8_t note_array[64] = {50,52,57,70,50,20,90,59};
+volatile static uint8_t note_array[64] = {50,52,57,70,50,20,90,59,4,8,15,16,23,42,65,69,8,7,6,5,4,3,2,1,11,22,33,44,55,66,77,88,12,32,42,52,23,12,43,23,12,23,34,45,56,67,78,99,1,1,1,1,1,1,1,1,2,2,2,2,2,2,2,2};
 uint8_t step = 0;
 uint16_t inv_tempo;
 //page 0
@@ -202,7 +209,8 @@ uint8_t led_buffer[8] = {0,0,0,0,0,0,0,0};
 volatile int8_t lcd_print_flag = 0;
 
 // IO
-uint8_t Button_portA = 0xFF;
+uint8_t Button_portA = 0;
+uint8_t last_Button_portA = 0;
 uint8_t Button_portB = 0xFF;
 
 // Interrupt Service Routine for 
@@ -275,17 +283,24 @@ void init(void)
 
 int main(void)
 {
-    uint8_t ret;
-    uint16_t value;
-
-
-
     init();
-    value = 0;
-
-
+    uint8_t disp_note; 
     while (1)
     {
+        
+        if(Button_portA==0) {
+            menu_page = menu_button_latch;
+            if (last_Button_portA!=0) menu_select = 0; //falling edge
+        } 
+        else if (last_Button_portA==0){ // rising edge
+            menu_page = 2;
+            menu_select = 1;
+            menu_item = 8;
+        } 
+        else { // holding button
+            menu_page = 2;
+        }
+        last_Button_portA = Button_portA;
 
         if (!menu_select){
             menu_item = (menu_item+R_count)%4 + 4*menu_page;
@@ -295,6 +310,7 @@ int main(void)
         }
         else {
             switch (menu_item) {
+                //page 0
                 case 0:
                     tempo = (uint16_t)(tempo+R_count);
                     if (tempo<10) tempo=10;
@@ -317,21 +333,31 @@ int main(void)
                     if (mem_bank < 0) mem_bank = 0;
                     if (mem_bank > 99) mem_bank = 99;
                     break;
+                //page 1
                 case 4:
                     swing = (swing+R_count)%100;
                     break;
-
+                case 5:
+                    break;
+                case 6:
+                    break;
+                case 7:
+                    break;
+                //page 2
+                case 8:
+                    note_array[Button_portA-1 + 8*note_row] = note_array[Button_portA-1 +8*note_row] + R_count;
+                    break;
+                case 9:
+                    note_array[Button_portA-1 + 8*note_row] = 255;
+                    break;
+                //case 10: velocity
+                //case 11: 
 
                 default:
                     break;
             }
             R_count=0;
         }
-
-        Button_portA = io_expander_read(0x12);
-        Button_portB = io_expander_read(0x13);
-        menu_button_press_read(Button_portB);
-        menu_page = menu_button_latch;
 
         if (lcd_print_flag==1){
             switch (menu_page){
@@ -340,6 +366,10 @@ int main(void)
                     break;
                 case 1:
                     sprintf(lcd_buffer1," Swing %2d", swing);
+                    break;
+                case 2:
+                    disp_note = note_array[in_the_range(Button_portA-1,0,7) + 8*note_row];
+                    sprintf(lcd_buffer1," Note %2s%d  Clear %d  Velocity ", midi_array[disp_note%12], (disp_note-12)/12, disp_note);
                     break;
             }
 
@@ -369,6 +399,34 @@ int main(void)
                     lcd_posx=0;
                     lcd_posy=0;
                     break;
+                case 5:
+                    lcd_posx=9;
+                    lcd_posy=0;
+                    break;
+                case 6:
+                    lcd_posx=0;
+                    lcd_posy=1;
+                    break;
+                case 7:
+                    lcd_posx=9;
+                    lcd_posy=1;
+                    break;
+                case 8:
+                    lcd_posx=0;
+                    lcd_posy=0;
+                    break;
+                case 9:
+                    lcd_posx=9;
+                    lcd_posy=0;
+                    break;
+                case 10:
+                    lcd_posx=0;
+                    lcd_posy=1;
+                    break;
+                case 11:
+                    lcd_posx=9;
+                    lcd_posy=1;
+                    break;
                 default:
                     break;
             }
@@ -382,17 +440,22 @@ int main(void)
                 led_buffer[i]=0xFF;
             }
             led_buffer[note_array_length/8] = (0xFF & ~(0xFF >> (note_array_length%8))); //last row
+            
             led_buffer[step/8] &= ~(0b10000000 >> step%8);  //step highlight
 
             for (int i=note_array_length/8 +1;i<=7;i++){ //bottom rows
                 led_buffer[i]=0x00;
             }
 
-            if ((millis%800 > 400) && (menu_item==1) && (menu_select==1)){ //rows selected
+            if ((millis%600 > 300) && (menu_item==1) && (menu_select==1)){ //rows selected
                 led_buffer[note_row] = 0x00;
             }
             
             display_pattern(led_buffer);
+
+            Button_portA = (uint8_t)(log((255-io_expander_read(0x12))*2)/log(2));
+            Button_portB = io_expander_read(0x13);
+            menu_button_press_read(Button_portB);
             lcd_print_flag=0;
         }
         
@@ -401,7 +464,12 @@ int main(void)
             _delay_ms(5); //debounce
             rotor_flag=0;
         }
-        if (millis_tempo >= inv_tempo){
+        
+        if (Button_portA != 0) {
+            step = in_the_range(Button_portA-1,0,7) + 8*note_row;
+            DAC_Write(note_array[step]);
+            }
+        else if ((millis_tempo >= inv_tempo) || (millis_tempo < 0)){
             millis_tempo = 0 ;
             DAC_Write(note_array[step]);
             step = (step + 1)%note_array_length;
