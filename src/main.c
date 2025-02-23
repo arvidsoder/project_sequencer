@@ -19,7 +19,7 @@
 // Rotary Encoder
 #define ENC_PIN_A 2  // PD2
 #define ENC_PIN_B 0  // PB0 
-#define ENC_BUTTON_PIN 3 //PD3
+#define ENC_BUTTON_PIN 3//
 //buttons
 #define MENU_BUTTON_PIN 0 //IO exp PORTB
 
@@ -69,7 +69,7 @@ else // A falling edge.
 
 
 void DAC_Write(uint8_t value){
-    uint16_t dac_value = ((uint16_t)value - 21)*36;
+    uint16_t dac_value = (uint16_t)value * 41; //(uint16_t)((((float)value - 21) / (120.0-21.0)) * 4095.0);
     if ((dac_value < 0) || (dac_value > 4095)) return;
 
     i2c_start_wait(DAC_MCP4725ADDR + I2C_WRITE);    //Address the DAC (write)
@@ -144,8 +144,8 @@ void io_expander_init(void){
     PORTC |= (1 << IO_EXPANDER_CS);
     io_expander_write(0x00, 0xFF); //PORT A as input
     io_expander_write(0x0C, 0x00); //PORT A disable pullup
-    io_expander_write(0x01, 0xFF); //PORT B as input
-    io_expander_write(0x0D, 0b11111110); //PORT B disable pullup
+    io_expander_write(0x01, 0b00000011); //PORT B as input
+    io_expander_write(0x0D, 0b11111100); //PORT B disable pullup
 }
 
 void MAX7219_send(uint8_t address, uint8_t data) {
@@ -190,9 +190,9 @@ int in_the_range(int value, int start, int stop){
 char midi_array[12][3] = {"C ","C#","D ","D#","E ","F ","F#","G ","G#","A ","A#","B "};
 
 
-volatile static uint8_t note_array[64] = {71,71,71,71,71,0,71,71,71,71,71,71,71,0,76,76,76,76,76,76,76,0,74,74,74,74,74,74,74,0,69,69,71,71,71,71,71,0,71,71,71,71,71,71,71,0,76,76,71,71,71,71,71,0,71,71,71,71,71,71,71,0,76,76};
+volatile static uint8_t note_array[64] = {50,52,57,70,50,20,90,59,4,8,15,16,23,42,65,69,8,7,6,5,4,3,2,1,11,22,33,44,55,66,77,88,12,32,42,52,23,12,43,23,12,23,34,45,56,67,78,99,1,1,1,1,1,1,1,1,2,2,2,2,2,2,2,2};
+volatile static uint8_t velocity_array[64];
 uint8_t step = 0;
-uint8_t current_note;
 uint16_t inv_tempo;
 //page 0
 uint16_t tempo = 120;
@@ -272,7 +272,7 @@ void init(void)
     OCR2A = 125;
     sei();
 
-    inv_tempo = 1000*30/tempo;
+    inv_tempo = 1000*60/tempo;
 }
 
 
@@ -285,7 +285,7 @@ void init(void)
 int main(void)
 {
     init();
-    
+    uint8_t disp_note; 
     while (1)
     {
         
@@ -302,17 +302,6 @@ int main(void)
             menu_page = 2;
         }
         last_Button_portA = Button_portA;
-
-        if (Button_portA != 0) {
-            step = in_the_range(Button_portA-1,0,7) + 8*note_row;
-            DAC_Write(note_array[step]);
-            }
-        else if ((millis_tempo >= inv_tempo) || (millis_tempo < 0)){
-            millis_tempo = 0 ;
-            step = (step + 1)%note_array_length;
-            DAC_Write(note_array[step]);
-        }
-        current_note = note_array[step];
 
         if (!menu_select){
             menu_item = (menu_item+R_count)%4 + 4*menu_page;
@@ -357,10 +346,10 @@ int main(void)
                     break;
                 //page 2
                 case 8:
-                    note_array[step] = note_array[step] + R_count;
+                    note_array[Button_portA-1 + 8*note_row] = note_array[Button_portA-1 +8*note_row] + R_count;
                     break;
                 case 9:
-                    note_array[step] = 255;
+                    note_array[Button_portA-1 + 8*note_row] = 255;
                     break;
                 //case 10: velocity
                 //case 11: 
@@ -371,18 +360,17 @@ int main(void)
             R_count=0;
         }
 
-        
-
         if (lcd_print_flag==1){
             switch (menu_page){
                 case 0:
-                    sprintf(lcd_buffer1," Tempo%3d Row %2d Notes %2d Bank%2d", tempo,note_row, note_array_length, mem_bank);
+                    sprintf(lcd_buffer1," Tempo%3d Row %2d Notes %2d Bank%2d", tempo, note_row, note_array_length, mem_bank);
                     break;
                 case 1:
                     sprintf(lcd_buffer1," Swing %2d", swing);
                     break;
                 case 2:
-                    sprintf(lcd_buffer1," Note %2s%d  Clear %d  Velocity ", midi_array[current_note%12], (current_note-12)/12, current_note);
+                    disp_note = note_array[in_the_range(Button_portA-1,0,7) + 8*note_row];
+                    sprintf(lcd_buffer1," Note %2s%d  Clear %d  Velocity ", midi_array[disp_note%12], (disp_note-12)/12, disp_note);
                     break;
             }
 
@@ -469,6 +457,7 @@ int main(void)
             Button_portA = (uint8_t)(log((255-io_expander_read(0x12))*2)/log(2));
             Button_portB = io_expander_read(0x13);
             menu_button_press_read(Button_portB);
+
             lcd_print_flag=0;
         }
         
@@ -478,6 +467,15 @@ int main(void)
             rotor_flag=0;
         }
         
+        if (Button_portA != 0) {
+            step = in_the_range(Button_portA-1,0,7) + 8*note_row;
+            DAC_Write(note_array[step]);
+            }
+        else if ((millis_tempo >= inv_tempo) || (millis_tempo < 0)){
+            millis_tempo = 0 ;
+            DAC_Write(note_array[step]);
+            step = (step + 1)%note_array_length;
+        }
         
         
     }
