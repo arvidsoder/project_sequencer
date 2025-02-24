@@ -35,7 +35,11 @@ volatile static uint8_t rotor_flag = 0;
 //button
 static uint8_t menu_button_latch = 0;
 volatile static uint8_t menu_select=0; //latching 
-static uint8_t last_button_state = 0xFF;
+static uint8_t last_page_button_state = 1;
+static uint8_t last_save_button_state = 1;
+
+volatile static uint8_t note_array[64];
+volatile static uint8_t velocity_array[64];
 
 void encoder_init() {
     // Set Pin A (PD2) and button (PD3) as inputs with pull-ups
@@ -86,6 +90,42 @@ void EEPROMwriteAddress(uint16_t address, uint8_t val){ // Writes a value val to
     i2c_write(val);
     i2c_stop();
     _delay_ms(5);
+}
+
+void EEPROMwritePage128(uint16_t address, uint8_t *data64_1, uint8_t *data64_2){
+    i2c_start_wait(EEPROM_24AA512ADDR + I2C_WRITE);
+    i2c_write(address >> 8); //address
+    i2c_write(address & 0xFF); //address
+
+    for (uint8_t i=0; i < 64; i++) {
+        i2c_write(data64_1[i]);
+    }
+
+    for (uint8_t i=0; i < 64; i++) {
+        i2c_write(data64_2[i]);
+    }
+    
+    i2c_stop();
+    _delay_ms(5);
+}
+
+void EEPROMreadPage128(uint16_t address){
+    i2c_start_wait(EEPROM_24AA512ADDR + I2C_WRITE);
+
+    i2c_write(address >> 8); //address
+    i2c_write(address & 0xFF); //address
+    i2c_rep_start(EEPROM_24AA512ADDR + I2C_READ);
+
+    for (uint8_t i=0; i < 64; i++) {
+        note_array[i] = i2c_readAck();
+    }
+
+    for (uint8_t i=0; i < 63; i++) {
+        velocity_array[i] = i2c_readAck();
+    }
+    velocity_array[63] = i2c_readNak();
+
+    i2c_stop();
 }
 
 uint8_t EEPROMreadAddress(uint16_t address){ // Reads value from address of EEPROM
@@ -144,8 +184,8 @@ void io_expander_init(void){
     PORTC |= (1 << IO_EXPANDER_CS);
     io_expander_write(0x00, 0xFF); //PORT A as input
     io_expander_write(0x0C, 0x00); //PORT A disable pullup
-    io_expander_write(0x01, 0xFF); //PORT B as input
-    io_expander_write(0x0D, 0b11111110); //PORT B disable pullup
+    io_expander_write(0x01, 0b11110011); //PORT B as input
+    io_expander_write(0x0D, 0b11111100); //PORT B disable pullup
 }
 
 void MAX7219_send(uint8_t address, uint8_t data) {
@@ -170,13 +210,17 @@ void display_pattern(uint8_t *pattern) {
 }
 
 void menu_button_press_read(uint8_t button_port_B){
-    uint8_t button_state = button_port_B;
-    if (button_state == 254 && last_button_state == 255) {
+    uint8_t page_button_state = button_port_B & (0x01);
+    uint8_t save_button_state = button_port_B & (0x02);
+    if (page_button_state == 0 && last_page_button_state == 1) {
         menu_button_latch = !menu_button_latch;  // Toggle state
         menu_select = 0;
     }
+    if (save_button_state == 1 && last_save_button_state == 0) {
+        EEPROMwritePage128(mem_bank*128, note_array, velocity_array);
+    }
 
-    last_button_state = button_state;
+    last_page_button_state = page_button_state;
 }
 
 int in_the_range(int value, int start, int stop){
@@ -190,7 +234,8 @@ int in_the_range(int value, int start, int stop){
 char midi_array[12][3] = {"C ","C#","D ","D#","E ","F ","F#","G ","G#","A ","A#","B "};
 
 
-volatile static uint8_t note_array[64] = {71,71,71,71,71,0,71,71,71,71,71,71,71,0,76,76,76,76,76,76,76,0,74,74,74,74,74,74,74,0,69,69,71,71,71,71,71,0,71,71,71,71,71,71,71,0,76,76,71,71,71,71,71,0,71,71,71,71,71,71,71,0,76,76};
+
+
 uint8_t step = 0;
 uint8_t current_note;
 uint16_t inv_tempo;
@@ -201,6 +246,8 @@ int8_t mem_bank = 0;
 volatile uint8_t note_array_length = 64;
 //page 1
 uint8_t swing = 50;
+uint8_t legato = 100;
+uint8_t legato_flag = 0;
 uint8_t lcd_posx = 0;
 uint8_t lcd_posy = 0;
 uint8_t menu_page = 0;
@@ -210,6 +257,7 @@ uint8_t led_buffer[8] = {0,0,0,0,0,0,0,0};
 volatile int8_t lcd_print_flag = 0;
 
 // IO
+uint8_t trigger_flag = 0;
 uint8_t Button_portA = 0;
 uint8_t last_Button_portA = 0;
 uint8_t Button_portB = 0xFF;
@@ -273,6 +321,8 @@ void init(void)
     sei();
 
     inv_tempo = 1000*30/tempo;
+    note_array = {71,71,71,71,71,0,71,71,71,71,71,71,71,0,76,76,76,76,76,76,76,0,74,74,74,74,74,74,74,0,69,69,71,71,71,71,71,0,71,71,71,71,71,71,71,0,76,76,71,71,71,71,71,0,71,71,71,71,71,71,71,0,76,76};
+    
 }
 
 
@@ -306,11 +356,24 @@ int main(void)
         if (Button_portA != 0) {
             step = in_the_range(Button_portA-1,0,7) + 8*note_row;
             DAC_Write(note_array[step]);
+            legato_flag = 0;
             }
         else if ((millis_tempo >= inv_tempo) || (millis_tempo < 0)){
             millis_tempo = 0 ;
             step = (step + 1)%note_array_length;
             DAC_Write(note_array[step]);
+            io_expander_write(0x13, 0b00001100);
+            legato_flag = 1;
+            trigger_flag = 1;
+        }
+        else if (((100*millis_tempo)/inv_tempo >= legato) && (legato_flag)){ // length of gate signal
+            
+            io_expander_write(0x13, io_expander_read(0x13) & (0b11111011));
+            legato_flag = 0;
+        }
+        else if (trigger_flag) { //Trigger signal off
+            io_expander_write(0x13, io_expander_read(0x13) & (0b11110111)); // PB3 = trigger PB2 = gate
+            trigger_flag = 0;
         }
         current_note = note_array[step];
 
@@ -324,34 +387,27 @@ int main(void)
             switch (menu_item) {
                 //page 0
                 case 0:
-                    tempo = (uint16_t)(tempo+R_count);
-                    if (tempo<10) tempo=10;
-                    if (tempo>500) tempo=500;
+                    tempo = (uint16_t)in_the_range(tempo+R_count, 10, 500);
                     inv_tempo = (uint16_t)(30.0*1000.0/(float)tempo); // period between quarter notes in ms
-                    
                     break;
                 case 1:
-                    note_row = (note_row+R_count);
-                    if (note_row < 0) note_row=0;
-                    if (note_row >= (note_array_length-1)/8) note_row=(note_array_length-1)/8;
+                    note_row = in_the_range(note_row+R_count, 0, (note_array_length-1)/8);
                     break;
                 case 2: 
-                    note_array_length = note_array_length+R_count;
-                    if (note_array_length < 1) note_array_length = 1;
-                    if (note_array_length > 64) note_array_length = 64;
+                    note_array_length = in_the_range(note_array_length+R_count, 1, 64);
                     break;
                 case 3:
-                    mem_bank = mem_bank+R_count;
-                    if (mem_bank < 0) mem_bank = 0;
-                    if (mem_bank > 99) mem_bank = 99;
+                    mem_bank = in_the_range(mem_bank+R_count,0,99);
                     break;
                 //page 1
                 case 4:
                     swing = (swing+R_count)%100;
                     break;
                 case 5:
+                    
                     break;
                 case 6:
+                    legato = in_the_range(legato + R_count, 1, 100);
                     break;
                 case 7:
                     break;
@@ -376,10 +432,10 @@ int main(void)
         if (lcd_print_flag==1){
             switch (menu_page){
                 case 0:
-                    sprintf(lcd_buffer1," Tempo%3d Row %2d Notes %2d Bank%2d", tempo,note_row, note_array_length, mem_bank);
+                    sprintf(lcd_buffer1," Tempo%3d Row %2d Notes %2d Ba%d", tempo,note_row, note_array_length, inv_tempo);
                     break;
                 case 1:
-                    sprintf(lcd_buffer1," Swing %2d", swing);
+                    sprintf(lcd_buffer1," Swing %2d        Legato %d", swing, legato);
                     break;
                 case 2:
                     sprintf(lcd_buffer1," Note %2s%d  Clear %d  Velocity ", midi_array[current_note%12], (current_note-12)/12, current_note);
