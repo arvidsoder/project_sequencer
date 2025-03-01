@@ -93,10 +93,10 @@
 #define LCD_DATA2_PIN    6            /**< pin for 4bit data bit 2  */
 #define LCD_DATA3_PIN    7            /**< pin for 4bit data bit 3  */
 #define LCD_RS_PORT      PORTB        /**< port for RS line         */
-#define LCD_E_PORT       PORTB        /**< port for Enable line     */
+#define LCD_E_PORT       PORTC        /**< port for Enable line     */
 #define LCD_RW_PORT      PORTB        /**< port for RW line         */
 #define LCD_RS_PIN       6            /**< pin  for RS line         */
-#define LCD_E_PIN        1            /**< pin  for Enable line     */
+#define LCD_E_PIN        2            /**< pin  for Enable line     */
 #define LCD_RW_PIN       7            /**< pin  for RW line         */
 
 

@@ -209,19 +209,7 @@ void display_pattern(uint8_t *pattern) {
     }
 }
 
-void menu_button_press_read(uint8_t button_port_B){
-    uint8_t page_button_state = button_port_B & (0x01);
-    uint8_t save_button_state = button_port_B & (0x02);
-    if (page_button_state == 0 && last_page_button_state == 1) {
-        menu_button_latch = !menu_button_latch;  // Toggle state
-        menu_select = 0;
-    }
-    if (save_button_state == 1 && last_save_button_state == 0) {
-        EEPROMwritePage128(mem_bank*128, note_array, velocity_array);
-    }
 
-    last_page_button_state = page_button_state;
-}
 
 int in_the_range(int value, int start, int stop){
     int ret_value = value;
@@ -252,6 +240,7 @@ uint8_t lcd_posx = 0;
 uint8_t lcd_posy = 0;
 uint8_t menu_page = 0;
 int8_t menu_item = 0;
+uint8_t last_menu_select = 0;
 
 uint8_t led_buffer[8] = {0,0,0,0,0,0,0,0};
 volatile int8_t lcd_print_flag = 0;
@@ -261,6 +250,21 @@ uint8_t trigger_flag = 0;
 uint8_t Button_portA = 0;
 uint8_t last_Button_portA = 0;
 uint8_t Button_portB = 0xFF;
+
+
+void menu_button_press_read(uint8_t button_port_B){
+    uint8_t page_button_state = button_port_B & (0x01);
+    uint8_t save_button_state = (button_port_B & (0x02)) >> 1;
+    if (page_button_state == 0 && last_page_button_state == 1) { //rising edge
+        menu_button_latch = !menu_button_latch;  // Toggle state
+        menu_select = 0;
+    }
+    if (save_button_state == 0 && last_save_button_state == 1) {  //falling edge
+        EEPROMwritePage128(mem_bank*128, note_array, velocity_array);
+    }
+    last_page_button_state = page_button_state;
+    last_save_button_state = save_button_state;
+}
 
 // Interrupt Service Routine for 
 ISR(INT1_vect) { 
@@ -321,8 +325,10 @@ void init(void)
     sei();
 
     inv_tempo = 1000*30/tempo;
-    note_array = {71,71,71,71,71,0,71,71,71,71,71,71,71,0,76,76,76,76,76,76,76,0,74,74,74,74,74,74,74,0,69,69,71,71,71,71,71,0,71,71,71,71,71,71,71,0,76,76,71,71,71,71,71,0,71,71,71,71,71,71,71,0,76,76};
-    
+    uint8_t darude_sandstorm[64] = {71,71,71,71,71,0,71,71,71,71,71,71,71,0,76,76,76,76,76,76,76,0,74,74,74,74,74,74,74,0,69,69,71,71,71,71,71,0,71,71,71,71,71,71,71,0,76,76,71,71,71,71,71,0,71,71,71,71,71,71,71,0,76,76};
+    for (uint8_t i=0; i<64; i++){
+        note_array[i] = darude_sandstorm[i];
+    }
 }
 
 
@@ -362,9 +368,15 @@ int main(void)
             millis_tempo = 0 ;
             step = (step + 1)%note_array_length;
             DAC_Write(note_array[step]);
-            io_expander_write(0x13, 0b00001100);
-            legato_flag = 1;
-            trigger_flag = 1;
+            if ((note_array[step] < 21) || (note_array[step] > 127)) {
+                io_expander_write(0x13, io_expander_read(0x13) & (0b11110011));
+            }
+            else {
+                io_expander_write(0x13, io_expander_read(0x13) | (0b00001100));
+                legato_flag = 1;
+                trigger_flag = 1;
+            }
+            
         }
         else if (((100*millis_tempo)/inv_tempo >= legato) && (legato_flag)){ // length of gate signal
             
@@ -381,7 +393,10 @@ int main(void)
             menu_item = (menu_item+R_count)%4 + 4*menu_page;
             if (menu_item < 0) menu_item=3 + 4*menu_page;
             R_count=0;
-            
+            if ((last_menu_select == 1) && (menu_item == 3)){
+                EEPROMreadPage128(mem_bank*128);
+                step = 0;
+            }
         }
         else {
             switch (menu_item) {
@@ -397,11 +412,11 @@ int main(void)
                     note_array_length = in_the_range(note_array_length+R_count, 1, 64);
                     break;
                 case 3:
-                    mem_bank = in_the_range(mem_bank+R_count,0,99);
+                    mem_bank = in_the_range(mem_bank+ R_count,0,99);
                     break;
                 //page 1
                 case 4:
-                    swing = (swing+R_count)%100;
+                    swing = in_the_range(swing+R_count, 0, 99);
                     break;
                 case 5:
                     
@@ -418,7 +433,9 @@ int main(void)
                 case 9:
                     note_array[step] = 255;
                     break;
-                //case 10: velocity
+                case 10: 
+                    velocity_array[step] = velocity_array[step] + R_count;
+                    break;
                 //case 11: 
 
                 default:
@@ -426,20 +443,25 @@ int main(void)
             }
             R_count=0;
         }
-
+        last_menu_select = menu_select;
         
 
         if (lcd_print_flag==1){
             switch (menu_page){
                 case 0:
-                    sprintf(lcd_buffer1," Tempo%3d Row %2d Notes %2d Ba%d", tempo,note_row, note_array_length, inv_tempo);
+                    sprintf(lcd_buffer1," Tempo%3d Row %2d Notes %2d Bank%2d", tempo, note_row, note_array_length, mem_bank);
                     break;
                 case 1:
                     sprintf(lcd_buffer1," Swing %2d        Legato %d", swing, legato);
                     break;
                 case 2:
-                    sprintf(lcd_buffer1," Note %2s%d  Clear %d  Velocity ", midi_array[current_note%12], (current_note-12)/12, current_note);
-                    break;
+                    if ((current_note<21) || (current_note>127)) {
+                        sprintf(lcd_buffer1," Note X  Clear  Vel%3d ClearAll", current_note, velocity_array[step]/2);
+                    }
+                    else {
+                        sprintf(lcd_buffer1," Note %2s%1d Clear  Vel%3d ClearAll", midi_array[current_note%12], (current_note-12)/12, velocity_array[step]/2);
+                    }
+                break;    
             }
 
                 
@@ -493,7 +515,7 @@ int main(void)
                     lcd_posy=1;
                     break;
                 case 11:
-                    lcd_posx=9;
+                    lcd_posx=7;
                     lcd_posy=1;
                     break;
                 default:
